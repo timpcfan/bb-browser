@@ -27,6 +27,7 @@ interface DaemonOptions {
  */
 function parseOptions(): DaemonOptions {
   const { values } = parseArgs({
+    allowPositionals: true,
     options: {
       host: {
         type: "string",
