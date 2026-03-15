@@ -149,6 +149,15 @@ bb-browser screenshot                 # 截图
 
 所有命令支持 `--json` 输出和 `--tab <id>` 多标签页并发操作。
 
+## Daemon 配置
+
+Daemon 默认绑定 `localhost:19824`，可通过 `--host` 自定义监听地址：
+
+```bash
+bb-browser daemon --host 127.0.0.1    # 仅 IPv4（解决 macOS IPv6 问题）
+bb-browser daemon --host 0.0.0.0      # 监听所有网卡（用于 Tailscale / ZeroTier 跨机器访问）
+```
+
 ## 架构
 
 ```

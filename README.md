@@ -149,6 +149,15 @@ bb-browser screenshot                 # take screenshot
 
 All commands support `--json` output and `--tab <id>` for concurrent multi-tab operations.
 
+## Daemon configuration
+
+The daemon binds to `localhost:19824` by default. You can customize the host with `--host`:
+
+```bash
+bb-browser daemon --host 127.0.0.1    # IPv4 only (fix macOS IPv6 issues)
+bb-browser daemon --host 0.0.0.0      # listen on all interfaces (for Tailscale / ZeroTier remote access)
+```
+
 ## Architecture
 
 ```
