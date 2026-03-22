@@ -2,6 +2,7 @@ import { execFileSync } from "node:child_process";
 import { parseOpenClawJson } from "./openclaw-json.js";
 
 const OPENCLAW_EVALUATE_TIMEOUT_MS = 120000;
+const EXEC_TIMEOUT_BUFFER_MS = 5000;
 
 export interface OCTab {
   targetId: string;
@@ -20,7 +21,7 @@ export function buildOpenClawArgs(args: string[], timeout: number): string[] {
 }
 
 export function getOpenClawExecTimeout(timeout: number): number {
-  return timeout + 5000;
+  return timeout + EXEC_TIMEOUT_BUFFER_MS;
 }
 
 function runOpenClaw(args: string[], timeout: number): string {

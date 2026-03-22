@@ -484,6 +484,7 @@ server.tool(
         continue;
       }
 
+      sessionOpenedTabs.delete(tabId);
       failedTabs.push({ tabId, error });
     }
 

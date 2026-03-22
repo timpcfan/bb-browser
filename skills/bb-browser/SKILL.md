@@ -1,6 +1,6 @@
 ---
 name: bb-browser
-description: 强大的信息获取与浏览器自动化工具。通过浏览器 + 用户登录态，获取公域和私域信息。可访问任意网页、内部系统、登录后页面，执行表单填写、信息提取、页面操作。支持 site 系统（35 平台 97 命令一键调用）、带登录态的 fetch、网络请求拦截与 mock、操作录制等高级功能。
+description: 强大的信息获取与浏览器自动化工具。通过浏览器 + 用户登录态，获取公域和私域信息。可访问任意网页、内部系统、登录后页面，执行表单填写、信息提取、页面操作。支持 site 系统（36 平台 103 命令一键调用）、带登录态的 fetch、网络请求拦截与 mock、操作录制等高级功能。
 allowed-tools: Bash(bb-browser:*)
 ---
 
@@ -28,7 +28,7 @@ bb-browser close             # 完成后关闭 tab
 
 ## Site 系统 — 把任何网站变成命令行 API
 
-site 系统是 bb-browser 的核心特性，通过 adapter 将网站功能 CLI 化，覆盖 35+ 平台。
+site 系统是 bb-browser 的核心特性，通过 adapter 将网站功能 CLI 化，覆盖 36+ 平台。
 
 ```bash
 # 常用命令
@@ -50,7 +50,7 @@ bb-browser site arxiv/search "transformer"    # 论文搜索
 
 adapter 自动处理 tab 管理（查找匹配域名的 tab 或新建），自动检测登录错误并提示。
 
-详细用法和 35 平台完整列表：参见 [references/site-system.md](references/site-system.md)
+详细用法和 36 平台完整列表：参见 [references/site-system.md](references/site-system.md)
 创建自定义 adapter：参见 [references/adapter-development.md](references/adapter-development.md)
 
 ## fetch — 带登录态的 curl
