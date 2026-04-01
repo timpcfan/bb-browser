@@ -5,7 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import { parseOpenClawJson } from "./openclaw-json.js";
 
-const DEFAULT_CDP_PORT = 19825;
+const DEFAULT_CDP_PORT = 19888;
 const MANAGED_BROWSER_DIR = path.join(os.homedir(), ".bb-browser", "browser");
 const MANAGED_USER_DATA_DIR = path.join(MANAGED_BROWSER_DIR, "user-data");
 const MANAGED_PORT_FILE = path.join(MANAGED_BROWSER_DIR, "cdp-port");

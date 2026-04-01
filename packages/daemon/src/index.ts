@@ -27,7 +27,7 @@ import { TabStateManager } from "./tab-state.js";
 const PID_FILE_PATH = "/tmp/bb-browser.pid";
 const DAEMON_DIR = path.join(os.homedir(), ".bb-browser");
 const TOKEN_FILE = path.join(DAEMON_DIR, "daemon.token");
-const DEFAULT_CDP_PORT = 19825;
+const DEFAULT_CDP_PORT = 19888;
 
 // ---------------------------------------------------------------------------
 // CLI argument parsing
