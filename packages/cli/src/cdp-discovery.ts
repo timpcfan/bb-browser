@@ -32,30 +32,60 @@ function getArgValue(flag: string): string | undefined {
 
 async function tryOpenClaw(): Promise<{ host: string; port: number } | null> {
   try {
-    const raw = await execFileAsync("npx", ["openclaw", "browser", "status", "--json"], 30000);
-    const parsed = parseOpenClawJson<{ cdpUrl?: string; cdpHost?: string; cdpPort?: number | string }>(raw);
+    // openclaw browser status 输出纯文本格式，支持 --json 字段提取
+    // 注意：--json 不是有效选项，使用 parseOpenClawJson 解析纯文本输出
+    const raw = await execFileAsync("npx", ["openclaw", "browser", "status"], 30000);
 
     let result: { host: string; port: number } | null = null;
 
-    // 优先使用完整的 cdpUrl
-    if (parsed?.cdpUrl) {
-      try {
-        const url = new URL(parsed.cdpUrl);
-        const port = Number(url.port);
-        if (Number.isInteger(port) && port > 0) {
-          result = { host: url.hostname, port };
-        }
-      } catch {
-        // cdpUrl 解析失败，继续尝试其他字段
+    // 尝试解析 JSON 格式（备用）
+    try {
+      const parsed = parseOpenClawJson<{ cdpUrl?: string; cdpHost?: string; cdpPort?: number | string }>(raw);
+      if (parsed?.cdpUrl) {
+        try {
+          const url = new URL(parsed.cdpUrl);
+          const port = Number(url.port);
+          if (Number.isInteger(port) && port > 0) {
+            result = { host: url.hostname, port };
+          }
+        } catch {}
       }
+      if (!result) {
+        const port = Number(parsed?.cdpPort);
+        if (Number.isInteger(port) && port > 0) {
+          result = { host: parsed?.cdpHost || "127.0.0.1", port };
+        }
+      }
+    } catch {
+      // 解析失败，尝试纯文本解析
     }
 
-    // 其次使用 cdpHost + cdpPort
+    // 纯文本格式解析：cdpPort: 18800\n cdpUrl: http://...
     if (!result) {
-      const port = Number(parsed?.cdpPort);
-      if (Number.isInteger(port) && port > 0) {
-        const host = parsed?.cdpHost || "127.0.0.1";
-        result = { host, port };
+      const lines = raw.split(/\r?\n/);
+      let cdpPort: number | undefined;
+      let cdpUrl: string | undefined;
+      for (const line of lines) {
+        const match = line.match(/^cdpPort:\s*(\d+)/);
+        if (match) {
+          cdpPort = Number.parseInt(match[1], 10);
+        }
+        const urlMatch = line.match(/^cdpUrl:\s*(.+)/);
+        if (urlMatch) {
+          cdpUrl = urlMatch[1].trim();
+        }
+      }
+      if (cdpPort && cdpPort > 0) {
+        if (cdpUrl) {
+          try {
+            const url = new URL(cdpUrl);
+            result = { host: url.hostname, port: Number(url.port) || cdpPort };
+          } catch {
+            result = { host: "127.0.0.1", port: cdpPort };
+          }
+        } else {
+          result = { host: "127.0.0.1", port: cdpPort };
+        }
       }
     }
 
@@ -145,6 +175,52 @@ export async function isManagedBrowserRunning(): Promise<boolean> {
   }
 }
 
+export async function launchHeadlessBrowser(port: number = DEFAULT_CDP_PORT): Promise<{ host: string; port: number } | null> {
+  // 启动无头 Chrome（不创建可见窗口，不打扰用户）
+  const executable = findBrowserExecutable();
+  if (!executable) {
+    return null;
+  }
+
+  const headlessDataDir = path.join(os.tmpdir(), "bb-browser-headless", String(port));
+  await mkdir(headlessDataDir, { recursive: true });
+
+  const args = [
+    `--remote-debugging-port=${port}`,
+    `--user-data-dir=${headlessDataDir}`,
+    "--headless=new", // 新的无头模式，不创建可见窗口
+    "--no-first-run",
+    "--no-default-browser-check",
+    "--disable-sync",
+    "--disable-background-networking",
+    "--disable-component-update",
+    "--disable-features=Translate,MediaRouter",
+    "--disable-session-crashed-bubble",
+    "--hide-crash-restore-bubble",
+  ];
+
+  try {
+    const child = spawn(executable, args, {
+      detached: true,
+      stdio: "ignore",
+    });
+    child.unref();
+  } catch {
+    return null;
+  }
+
+  // 等待 Chrome 启动
+  const deadline = Date.now() + 10000;
+  while (Date.now() < deadline) {
+    if (await canConnect("127.0.0.1", port)) {
+      return { host: "127.0.0.1", port };
+    }
+    await new Promise((resolve) => setTimeout(resolve, 250));
+  }
+
+  return null;
+}
+
 export async function launchManagedBrowser(port: number = DEFAULT_CDP_PORT): Promise<{ host: string; port: number } | null> {
   const executable = findBrowserExecutable();
   if (!executable) {
@@ -232,7 +308,7 @@ export async function discoverCdpPort(): Promise<{ host: string; port: number } 
   } catch {
   }
 
-  // 优先级3: 文件缓存（避免重复执行 npx openclaw）
+  // 优先级3: 文件缓存
   try {
     const cacheRaw = await readFile(CDP_CACHE_FILE, "utf8");
     const cache = JSON.parse(cacheRaw) as { host: string; port: number; timestamp: number };
@@ -241,26 +317,22 @@ export async function discoverCdpPort(): Promise<{ host: string; port: number } 
     }
   } catch {}
 
-  // 优先级4: OpenClaw
-  if (process.argv.includes("--openclaw")) {
-    const viaOpenClaw = await tryOpenClaw();
-    if (viaOpenClaw && await canConnect(viaOpenClaw.host, viaOpenClaw.port)) {
-      return viaOpenClaw;
-    }
+  // 优先级4: OpenClaw（优先于任何 Chrome 启动 — 不打扰用户）
+  const viaOpenClaw = await tryOpenClaw();
+  if (viaOpenClaw && await canConnect(viaOpenClaw.host, viaOpenClaw.port)) {
+    return viaOpenClaw;
   }
 
-  // 优先级5: 自动启动浏览器
+  // 优先级5: 无头 Chrome（不创建可见窗口）
+  const headless = await launchHeadlessBrowser();
+  if (headless) {
+    return headless;
+  }
+
+  // 优先级6: 普通 Chrome（最后兜底，会创建可见窗口）
   const launched = await launchManagedBrowser();
   if (launched) {
     return launched;
-  }
-
-  // 优先级6: 自动检测 OpenClaw（不带 --openclaw 参数时）
-  if (!process.argv.includes("--openclaw")) {
-    const detectedOpenClaw = await tryOpenClaw();
-    if (detectedOpenClaw && await canConnect(detectedOpenClaw.host, detectedOpenClaw.port)) {
-      return detectedOpenClaw;
-    }
   }
 
   return null;
