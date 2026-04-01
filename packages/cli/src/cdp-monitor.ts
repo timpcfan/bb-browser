@@ -6,7 +6,7 @@
  * CLI invocations via a tiny HTTP API on 127.0.0.1.
  *
  * Usage:
- *   node cdp-monitor.js --cdp-host 127.0.0.1 --cdp-port 19825 \
+ *   node cdp-monitor.js --cdp-host 127.0.0.1 --cdp-port 19888 \
  *                        --monitor-port 19826 --token <hex>
  */
 
@@ -30,7 +30,7 @@ function getArg(flag: string, fallback: string): string {
 }
 
 const CDP_HOST = getArg("--cdp-host", "127.0.0.1");
-const CDP_PORT = Number(getArg("--cdp-port", "19825"));
+const CDP_PORT = Number(getArg("--cdp-port", "19888"));
 const MONITOR_PORT = Number(getArg("--monitor-port", "19826"));
 const AUTH_TOKEN = getArg("--token", "");
 
