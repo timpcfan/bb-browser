@@ -3,7 +3,7 @@ import { existsSync } from "node:fs";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { parseOpenClawJson } from "./openclaw-json.js";
+
 
 const DEFAULT_CDP_PORT = 19888;
 const MANAGED_BROWSER_DIR = path.join(os.homedir(), ".bb-browser", "browser");
@@ -32,69 +32,48 @@ function getArgValue(flag: string): string | undefined {
 
 async function tryOpenClaw(): Promise<{ host: string; port: number } | null> {
   try {
-    // openclaw browser status 输出纯文本格式，支持 --json 字段提取
-    // 注意：--json 不是有效选项，使用 parseOpenClawJson 解析纯文本输出
     const raw = await execFileAsync("npx", ["openclaw", "browser", "status"], 30000);
 
-    let result: { host: string; port: number } | null = null;
-
-    // 尝试解析 JSON 格式（备用）
-    try {
-      const parsed = parseOpenClawJson<{ cdpUrl?: string; cdpHost?: string; cdpPort?: number | string }>(raw);
-      if (parsed?.cdpUrl) {
-        try {
-          const url = new URL(parsed.cdpUrl);
-          const port = Number(url.port);
-          if (Number.isInteger(port) && port > 0) {
-            result = { host: url.hostname, port };
-          }
-        } catch {}
+    // 纯文本格式解析：cdpPort: 18800\n cdpUrl: http://...
+    const lines = raw.split(/\r?\n/);
+    let cdpPort: number | undefined;
+    let cdpUrl: string | undefined;
+    for (const line of lines) {
+      const match = line.match(/^cdpPort:\s*(\d+)/);
+      if (match) {
+        cdpPort = Number.parseInt(match[1], 10);
       }
-      if (!result) {
-        const port = Number(parsed?.cdpPort);
-        if (Number.isInteger(port) && port > 0) {
-          result = { host: parsed?.cdpHost || "127.0.0.1", port };
-        }
+      const urlMatch = line.match(/^cdpUrl:\s*(.+)/);
+      if (urlMatch) {
+        cdpUrl = urlMatch[1].trim();
       }
-    } catch {
-      // 解析失败，尝试纯文本解析
     }
 
-    // 纯文本格式解析：cdpPort: 18800\n cdpUrl: http://...
-    if (!result) {
-      const lines = raw.split(/\r?\n/);
-      let cdpPort: number | undefined;
-      let cdpUrl: string | undefined;
-      for (const line of lines) {
-        const match = line.match(/^cdpPort:\s*(\d+)/);
-        if (match) {
-          cdpPort = Number.parseInt(match[1], 10);
-        }
-        const urlMatch = line.match(/^cdpUrl:\s*(.+)/);
-        if (urlMatch) {
-          cdpUrl = urlMatch[1].trim();
-        }
+    if (!cdpPort || cdpPort <= 0) {
+      return null;
+    }
+
+    let result: { host: string; port: number };
+    if (cdpUrl) {
+      try {
+        const url = new URL(cdpUrl);
+        result = { host: url.hostname, port: Number(url.port) || cdpPort };
+      } catch {
+        result = { host: "127.0.0.1", port: cdpPort };
       }
-      if (cdpPort && cdpPort > 0) {
-        if (cdpUrl) {
-          try {
-            const url = new URL(cdpUrl);
-            result = { host: url.hostname, port: Number(url.port) || cdpPort };
-          } catch {
-            result = { host: "127.0.0.1", port: cdpPort };
-          }
-        } else {
-          result = { host: "127.0.0.1", port: cdpPort };
-        }
-      }
+    } else {
+      result = { host: "127.0.0.1", port: cdpPort };
+    }
+
+    // 验证端口可连接
+    if (!(await canConnect(result.host, result.port))) {
+      return null;
     }
 
     // 成功后写入缓存
-    if (result) {
-      try {
-        await writeFile(CDP_CACHE_FILE, JSON.stringify({ ...result, timestamp: Date.now() }), "utf8");
-      } catch {}
-    }
+    try {
+      await writeFile(CDP_CACHE_FILE, JSON.stringify({ ...result, timestamp: Date.now() }), "utf8");
+    } catch {}
 
     return result;
   } catch {

@@ -35,7 +35,7 @@ export class HttpServer {
   private startTime = 0;
 
   constructor(options: HttpServerOptions) {
-    this.host = options.host ?? "127.0.0.1";
+    this.host = options.host ?? "0.0.0.0";
     this.port = options.port ?? DAEMON_PORT;
     this.token = options.token ?? null;
     this.cdp = options.cdp;

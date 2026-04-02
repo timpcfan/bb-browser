@@ -149,7 +149,7 @@ function cleanupTokenFile(): void {
 // ---------------------------------------------------------------------------
 
 async function discoverCdpPort(host: string, port: number): Promise<{ host: string; port: number }> {
-  // Try connecting to the specified port first
+  // 优先级1: 指定端口
   try {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), 2000);
@@ -165,7 +165,40 @@ async function discoverCdpPort(host: string, port: number): Promise<{ host: stri
     }
   } catch {}
 
-  // Try reading managed browser port file
+  // 优先级2: OpenClaw
+  try {
+    const { execFileSync } = await import("node:child_process");
+    const raw = execFileSync("npx", ["openclaw", "browser", "status"], {
+      encoding: "utf8",
+      timeout: 10000,
+    });
+    const lines = raw.split(/\r?\n/);
+    for (const line of lines) {
+      const match = line.match(/^cdpPort:\s*(\d+)/);
+      if (match) {
+        const openClawPort = parseInt(match[1], 10);
+        if (openClawPort > 0) {
+          try {
+            const ctrl = new AbortController();
+            const t = setTimeout(() => ctrl.abort(), 2000);
+            try {
+              const resp = await fetch(`http://127.0.0.1:${openClawPort}/json/version`, {
+                signal: ctrl.signal,
+              });
+              if (resp.ok) {
+                console.error(`[Daemon] Found OpenClaw Chrome at ${openClawPort}`);
+                return { host: "127.0.0.1", port: openClawPort };
+              }
+            } finally {
+              clearTimeout(t);
+            }
+          } catch {}
+        }
+      }
+    }
+  } catch {}
+
+  // 优先级3: Managed port file
   const managedPortFile = path.join(os.homedir(), ".bb-browser", "browser", "cdp-port");
   try {
     const rawPort = readFileSync(managedPortFile, "utf8").trim();
@@ -187,6 +220,63 @@ async function discoverCdpPort(host: string, port: number): Promise<{ host: stri
       } catch {}
     }
   } catch {}
+
+  // 优先级4: Spawn headless Chrome
+  try {
+    const { spawn } = await import("node:child_process");
+    const chromePaths = [
+      "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+      "/Applications/Chromium.app/Contents/MacOS/Chromium",
+    ];
+    let chromePath = "";
+    for (const p of chromePaths) {
+      try {
+        const { statSync } = await import("node:fs");
+        statSync(p);
+        chromePath = p;
+        break;
+      } catch {}
+    }
+    if (!chromePath) {
+      throw new Error("Chrome not found");
+    }
+
+    const headlessDataDir = path.join(os.tmpdir(), "bb-browser-headless", String(port));
+    const { mkdirSync } = await import("node:fs");
+    mkdirSync(headlessDataDir, { recursive: true });
+
+    const chromeArgs = [
+      `--remote-debugging-port=${port}`,
+      `--user-data-dir=${headlessDataDir}`,
+      "--headless=new",
+      "--no-first-run",
+      "--no-default-browser-check",
+      "--disable-sync",
+    ];
+
+    const child = spawn(chromePath, chromeArgs, {
+      detached: true,
+      stdio: "ignore",
+    });
+    child.unref();
+
+    // Wait for Chrome to start
+    const deadline = Date.now() + 15000;
+    while (Date.now() < deadline) {
+      try {
+        const resp = await fetch(`http://127.0.0.1:${port}/json/version`, {
+          signal: AbortSignal.timeout(1000),
+        });
+        if (resp.ok) {
+          console.error(`[Daemon] Headless Chrome spawned at ${port}`);
+          return { host: "127.0.0.1", port };
+        }
+      } catch {}
+      await new Promise((r) => setTimeout(r, 500));
+    }
+  } catch (e) {
+    console.error(`[Daemon] Failed to spawn headless Chrome: ${e}`);
+  }
 
   throw new Error(
     `Cannot connect to Chrome CDP at ${host}:${port}. ` +

@@ -8,7 +8,8 @@
  */
 
 import { request as httpRequest } from "node:http";
-import WebSocket from "ws";
+// Node.js native WebSocket (v18+) — avoids ws@8.x ESM dynamic require issue on Node.js v24
+declare const WebSocket: typeof globalThis.WebSocket;
 import { TabStateManager } from "./tab-state.js";
 
 // ---------------------------------------------------------------------------
@@ -57,11 +58,14 @@ function fetchJson(url: string): Promise<unknown> {
   });
 }
 
-function connectWebSocket(url: string): Promise<WebSocket> {
+function connectWebSocket(url: string): Promise<globalThis.WebSocket> {
   return new Promise((resolve, reject) => {
-    const ws = new WebSocket(url);
-    ws.once("open", () => resolve(ws));
-    ws.once("error", reject);
+    const ws = new WebSocket(url) as globalThis.WebSocket;
+    ws.onopen = () => resolve(ws);
+    ws.onerror = reject;
+    // Use one-time event listeners for compatibility with native WebSocket
+    ws.addEventListener("open", () => resolve(ws), { once: true });
+    ws.addEventListener("error", reject, { once: true });
   });
 }
 
@@ -77,7 +81,7 @@ function normalizeHeaders(headers: unknown): Record<string, string> | undefined 
 // ---------------------------------------------------------------------------
 
 export class CdpConnection {
-  private socket: WebSocket | null = null;
+  private socket: globalThis.WebSocket | null = null;
   private pending = new Map<number, PendingCommand>();
   private nextId = 1;
 
@@ -195,9 +199,9 @@ export class CdpConnection {
   // WebSocket message handling
   // ---------------------------------------------------------------------------
 
-  private setupListeners(ws: WebSocket): void {
-    ws.on("message", (raw) => {
-      const message = JSON.parse(raw.toString()) as JsonObject;
+  private setupListeners(ws: globalThis.WebSocket): void {
+    ws.onmessage = (event) => {
+      const message = JSON.parse(String(event.data)) as JsonObject;
 
       // Response to a browser-level command
       if (typeof message.id === "number") {
@@ -278,19 +282,19 @@ export class CdpConnection {
         if (targetId) {
           this.handleSessionEvent(targetId, message).catch(() => {});
         }
-      }
-    });
+    }
+    };
 
-    ws.on("close", () => {
+    ws.onclose = () => {
       this._connected = false;
       this.socket = null;
       for (const p of this.pending.values()) {
         p.reject(new Error("CDP connection closed"));
       }
       this.pending.clear();
-    });
+    };
 
-    ws.on("error", () => {});
+    ws.onerror = () => {};
   }
 
   // ---------------------------------------------------------------------------
@@ -564,10 +568,10 @@ export class CdpConnection {
     const id = this.nextId++;
     const payload = JSON.stringify({ id, method, params, sessionId });
     return new Promise<T>((resolve, reject) => {
-      const check = (raw: WebSocket.RawData) => {
-        const msg = JSON.parse(raw.toString()) as JsonObject;
+      const check = (event: MessageEvent) => {
+        const msg = JSON.parse(String(event.data)) as JsonObject;
         if (msg.id === id && msg.sessionId === sessionId) {
-          this.socket!.off("message", check);
+          this.socket!.removeEventListener("message", check);
           if (msg.error) {
             reject(
               new Error(
@@ -579,7 +583,7 @@ export class CdpConnection {
           }
         }
       };
-      this.socket!.on("message", check);
+      this.socket!.addEventListener("message", check);
       this.socket!.send(payload);
     });
   }
